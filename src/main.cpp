@@ -1,18 +1,108 @@
-#include <Arduino.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <DHT.h>
+#include "MAX30100_PulseOximeter.h"
 
-// put function declarations here:
-int myFunction(int, int);
+#define DHTPIN 2
+#define DHTTYPE DHT11
+#define BUZZER 8
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+PulseOximeter pox;
+DHT dht(DHTPIN, DHTTYPE);
+
+unsigned long previousMillis = 0;
+const long intervaloLectura = 1000; // 1 segundo
+
+void onBeatDetected() {
+  // Callback de latido detectado (puedes usarlo si quieres animación)
+}
+
+// Función para limpiar una línea específica del LCD
+void clearLine(int line) {
+  lcd.setCursor(0, line);
+  for (int i = 0; i < 16; i++) lcd.print(" ");
+  lcd.setCursor(0, line);
+}
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  Serial.begin(9600);
+  lcd.init();
+  lcd.backlight();
+
+  pinMode(BUZZER, OUTPUT);
+  digitalWrite(BUZZER, LOW);
+
+  dht.begin();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Iniciando...");
+  delay(1000);
+
+  // Inicialización del sensor MAX30100
+  if (!pox.begin()) {
+    lcd.clear();
+    lcd.print("Error MAX30100");
+    while (1); // Bloquea si no se detecta el sensor
+  }
+
+  pox.setOnBeatDetectedCallback(onBeatDetected);
+
+  // Mensajes iniciales
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print("Temp: --.-C");
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-}
+  pox.update();
 
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= intervaloLectura) {
+    previousMillis = currentMillis;
+
+    float temp = dht.readTemperature();
+
+    // Mostrar HR y SpO2 solo si son válidos
+    clearLine(0);
+
+    int hr = pox.getHeartRate();
+    int spo2 = pox.getSpO2();
+
+    if (hr > 0 && spo2 > 0) {
+      lcd.setCursor(0, 0);
+      lcd.print("HR:");
+      lcd.print(hr);
+      lcd.print(" SpO2:");
+      lcd.print(spo2);
+    } else {
+      lcd.setCursor(0, 0);
+      lcd.print("HR: -- SpO2: --");
+    }
+
+    // Mostrar temperatura siempre
+    lcd.setCursor(0, 1);
+    lcd.print("Temp: ");
+    if (isnan(temp)) {
+      lcd.print("--.-C   ");
+    } else {
+      lcd.print(temp, 1);
+      lcd.print("C   "); // espacios extra para limpiar resto
+    }
+
+    // Lógica de alarma por temperatura
+    if (!isnan(temp) && temp > 38.0) {
+      tone(BUZZER, 1000);
+    } else {
+      noTone(BUZZER);
+    }
+
+    // Serial monitor
+    Serial.print("HR=");
+    Serial.print(hr);
+    Serial.print("  SpO2=");
+    Serial.print(spo2);
+    Serial.print("  Temp=");
+    Serial.println(temp);
+  }
 }
